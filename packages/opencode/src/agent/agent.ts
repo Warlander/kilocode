@@ -162,6 +162,31 @@ export const layer = Layer.effect(
             mode: "primary",
             native: true,
           },
+          plan_html: {
+            name: "plan_html",
+            displayName: "Plan (HTML)",
+            description: "Plan mode that generates self-contained HTML artifacts instead of markdown plans.",
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                question: "allow",
+                plan_exit: "allow",
+                external_directory: {
+                  [path.join(Global.Path.data, "plans", "*")]: "allow",
+                },
+                edit: {
+                  "*": "deny",
+                  [path.join(".opencode", "plans", "*.html")]: "allow",
+                  [path.join(".kilo", "plans", "*.html")]: "allow",
+                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.html")))]: "allow",
+                },
+              }),
+              user,
+            ),
+            mode: "primary",
+            native: true,
+          },
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,

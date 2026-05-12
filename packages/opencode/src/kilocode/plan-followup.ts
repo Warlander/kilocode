@@ -215,6 +215,13 @@ export namespace PlanFollowup {
     return input
   }
 
+  function planExt(messages: MessageV2.WithParts[]) {
+    const lastUserIdx = messages.findLastIndex((m) => m.info.role === "user")
+    const assistantMessages = messages.slice(lastUserIdx + 1).filter((m) => m.info.role === "assistant")
+    const agent = assistantMessages.at(-1)?.info.agent
+    return agent === "plan_html" ? ".html" : ".md"
+  }
+
   async function resolvePlan(input: {
     assistant?: MessageV2.WithParts
     messages: MessageV2.WithParts[]
@@ -236,7 +243,8 @@ export namespace PlanFollowup {
 
     // Fall back to plan file on disk
     const session = await Session.get(SessionID.make(input.sessionID))
-    const file = Bun.file(Session.plan(session, Instance.current))
+    const ext = planExt(input.messages)
+    const file = Bun.file(Session.plan(session, Instance.current, ext))
     const plan = await file.text().catch(() => "")
     return plan.trim()
   }
@@ -351,7 +359,8 @@ export namespace PlanFollowup {
           })
 
         try {
-          const file = Session.plan(session, Instance.current)
+          const ext = planExt(input.messages)
+          const file = Session.plan(session, Instance.current, ext)
           const todos = await PlanFollowupRuntime.todo.get(input.sessionID)
           const todoList = formatTodos(todos)
 

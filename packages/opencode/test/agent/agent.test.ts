@@ -30,6 +30,7 @@ test("returns default native agents when no config", async () => {
       const names = agents.map((a) => a.name)
       expect(names).toContain("code") // kilocode_change
       expect(names).toContain("plan")
+      expect(names).toContain("plan_html") // kilocode_change
       expect(names).toContain("debug") // kilocode_change
       expect(names).toContain("orchestrator") // kilocode_change
       expect(names).toContain("ask") // kilocode_change
@@ -151,6 +152,62 @@ test("plan agent user config allows cannot re-enable non-plan edits", async () =
       expect(Permission.evaluate("edit", "src/output.log", plan!.permission).action).toBe("deny")
       expect(Permission.evaluate("edit", ".kilo/plans/foo.md", plan!.permission).action).toBe("allow")
       expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("allow")
+    },
+  })
+})
+// kilocode_change end
+
+// kilocode_change start - plan_html agent tests
+test("plan_html agent is registered and has correct properties", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const planHtml = await load(tmp.path, (svc) => svc.get("plan_html"))
+      expect(planHtml).toBeDefined()
+      expect(planHtml?.name).toBe("plan_html")
+      expect(planHtml?.displayName).toBe("Plan (HTML)")
+      expect(planHtml?.mode).toBe("primary")
+      expect(planHtml?.native).toBe(true)
+      expect(evalPerm(planHtml, "question")).toBe("allow")
+      expect(evalPerm(planHtml, "plan_exit")).toBe("allow")
+      expect(evalPerm(planHtml, "edit")).toBe("deny")
+    },
+  })
+})
+
+test("plan_html agent allows html plan edits only", async () => {
+  await using tmp = await tmpdir()
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const planHtml = await load(tmp.path, (svc) => svc.get("plan_html"))
+      expect(planHtml).toBeDefined()
+      expect(Permission.evaluate("edit", "src/index.ts", planHtml!.permission).action).toBe("deny")
+      expect(Permission.evaluate("edit", ".kilo/plans/foo.html", planHtml!.permission).action).toBe("allow")
+      expect(Permission.evaluate("edit", ".opencode/plans/foo.html", planHtml!.permission).action).toBe("allow")
+      expect(Permission.evaluate("edit", ".kilo/plans/foo.md", planHtml!.permission).action).toBe("deny")
+      expect(Permission.evaluate("edit", ".opencode/plans/foo.md", planHtml!.permission).action).toBe("deny")
+    },
+  })
+})
+
+test("plan_html agent user config allows cannot re-enable non-plan edits", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      permission: {
+        edit: { "src/output.log": "allow" },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const planHtml = await load(tmp.path, (svc) => svc.get("plan_html"))
+      expect(planHtml).toBeDefined()
+      expect(Permission.evaluate("edit", "src/output.log", planHtml!.permission).action).toBe("deny")
+      expect(Permission.evaluate("edit", ".kilo/plans/foo.html", planHtml!.permission).action).toBe("allow")
+      expect(Permission.evaluate("edit", ".opencode/plans/foo.html", planHtml!.permission).action).toBe("allow")
     },
   })
 })
@@ -863,6 +920,7 @@ test("defaultAgent throws when all primary agents are disabled", async () => {
         // kilocode_change start - disable all primary agents
         code: { disable: true },
         plan: { disable: true },
+        plan_html: { disable: true },
         debug: { disable: true },
         orchestrator: { disable: true },
         ask: { disable: true },

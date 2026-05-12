@@ -16,10 +16,11 @@ import { environmentDetails, type EditorContext } from "@/kilocode/editor-contex
 import { Identifier } from "@/id/id"
 import { Filesystem } from "@/util/filesystem"
 import PROMPT_PLAN from "@/session/prompt/plan.txt"
+import PROMPT_PLAN_HTML from "@/session/prompt/plan-html.txt"
 import CODE_SWITCH from "@/session/prompt/code-switch.txt"
 
 export namespace KiloSessionPrompt {
-  const modes = ["ask", "plan"]
+  const modes = ["ask", "plan", "plan_html"]
 
   /**
    * Determines whether the plan follow-up prompt should be shown.
@@ -211,19 +212,22 @@ export namespace KiloSessionPrompt {
     session: Session.Info
     userMessage: MessageV2.WithParts
   }) {
-    if (input.agent.name !== "plan") return
-    const plan = Session.plan(input.session, Instance.current)
+    if (input.agent.name !== "plan" && input.agent.name !== "plan_html") return
+    const isHtml = input.agent.name === "plan_html"
+    const ext = isHtml ? ".html" : ".md"
+    const plan = Session.plan(input.session, Instance.current, ext)
     const exists = await Filesystem.exists(plan)
     if (!exists) await ensurePlanDir(path.dirname(plan))
     const info = exists
       ? `A plan file already exists at ${plan}. You can read it and make incremental edits using the edit tool.`
       : `No plan file exists yet. You should create your plan at ${plan} using the write tool.`
+    const prompt = isHtml ? PROMPT_PLAN_HTML : PROMPT_PLAN
     input.userMessage.parts.push({
       id: PartID.ascending(),
       messageID: input.userMessage.info.id,
       sessionID: input.userMessage.info.sessionID,
       type: "text",
-      text: PROMPT_PLAN + `\n\n## Plan File\n${info}\nThis is the ONLY file you are allowed to write to or edit.`,
+      text: prompt + `\n\n## Plan File\n${info}\nThis is the ONLY file you are allowed to write to or edit.`,
       synthetic: true,
     })
   }

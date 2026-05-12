@@ -182,4 +182,33 @@ describe("Session", () => {
 
     expect(missing).toBe(true)
   })
+
+  test("plan defaults to .md extension", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await create({})
+        const plan = SessionNs.plan(info, Instance.current)
+        expect(plan).toEndWith(".md")
+        expect(plan).toContain(".kilo")
+        expect(plan).toContain("plans")
+      },
+    })
+  })
+
+  test("plan accepts .html extension override", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const info = await create({})
+        const plan = SessionNs.plan(info, Instance.current, ".html")
+        expect(plan).toEndWith(".html")
+        expect(plan).toContain(".kilo")
+        expect(plan).toContain("plans")
+        expect(plan).not.toContain(".md")
+      },
+    })
+  })
 })

@@ -87,9 +87,11 @@ async function withInstance(fn: () => Promise<void>) {
 async function seed(input: {
   text: string
   variant?: string
+  agent?: string
   tools?: Array<{ tool: string; input: Record<string, unknown>; output: string }>
 }) {
   const session = await Session.create({})
+  const agent = input.agent ?? "plan"
   const user = await Session.updateMessage({
     id: MessageID.ascending(),
     role: "user",
@@ -97,7 +99,7 @@ async function seed(input: {
     time: {
       created: Date.now(),
     },
-    agent: "plan",
+    agent,
     model: input.variant ? { ...model, variant: input.variant } : model,
   })
   await Session.updatePart({
@@ -118,8 +120,8 @@ async function seed(input: {
     parentID: user.id,
     modelID: model.modelID,
     providerID: model.providerID,
-    mode: "plan",
-    agent: "plan",
+    mode: agent,
+    agent,
     path: {
       cwd: Instance.directory,
       root: Instance.worktree,
@@ -629,6 +631,81 @@ describe("plan follow-up", () => {
       expect(newTodos).toHaveLength(2)
       expect(newTodos).toContainEqual({ content: "Add API endpoint", status: "completed", priority: "high" })
       expect(newTodos).toContainEqual({ content: "Write tests", status: "pending", priority: "medium" })
+    }))
+
+  test("ask - plan_html session uses .html plan file path in new session", () =>
+    withInstance(async () => {
+      const seeded = await seed({ text: "1. Add API\n2. Add tests", agent: "plan_html" })
+      const before = await sessions()
+
+      const agentSpy = spyOn(PlanFollowupRuntime, "agent").mockResolvedValue(fakeAgent as any)
+      const modelSpy = spyOn(PlanFollowupRuntime, "model").mockResolvedValue(fakeModel)
+      const llmSpy = spyOn(LLM, "stream").mockResolvedValue({
+        text: Promise.resolve("## Discoveries\n\nFound REST endpoints in src/api.ts"),
+      } as any)
+      const loop = spyOn(PlanFollowupRuntime, "loop").mockResolvedValue({
+        info: {
+          id: MessageID.make("msg_test"),
+          role: "assistant",
+          sessionID: SessionID.make("ses_test"),
+          time: { created: Date.now() },
+          parentID: MessageID.make("msg_parent"),
+          modelID: ModelID.make("test"),
+          providerID: ProviderID.make("test"),
+          mode: "code",
+          agent: "code",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0,
+          tokens: { total: 0, input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+        parts: [],
+      } as MessageV2.WithParts)
+      using _ = {
+        [Symbol.dispose]() {
+          agentSpy.mockRestore()
+          modelSpy.mockRestore()
+          llmSpy.mockRestore()
+          loop.mockRestore()
+        },
+      }
+
+      const pending = PlanFollowup.ask({
+        sessionID: seeded.sessionID,
+        messages: seeded.messages,
+        abort: AbortSignal.any([]),
+      })
+
+      const item = await waitQuestion(seeded.sessionID)
+      expect(item).toBeDefined()
+      if (!item) return
+      await question.reply({
+        requestID: item.id,
+        answers: [[PlanFollowup.ANSWER_NEW_SESSION]],
+      })
+
+      await expect(pending).resolves.toBe("break")
+
+      const after = await sessions()
+      const prev = new Set(before.map((item) => item.id))
+      const added = after.filter((item) => !prev.has(item.id))
+      expect(added).toHaveLength(1)
+
+      const newSessionID = added[0]?.id
+      if (!newSessionID) throw new Error("expected follow-up session")
+
+      const planPath = Session.plan(await Session.get(seeded.sessionID), Instance.current, ".html")
+      const messages = await Session.messages({ sessionID: newSessionID })
+      const user = messages.find((item) => item.info.role === "user")
+      expect(user?.info.role).toBe("user")
+      if (!user || user.info.role !== "user") throw new Error("expected seeded user message")
+
+      const part = user.parts.find((item) => item.type === "text")
+      expect(part?.type).toBe("text")
+      if (!part || part.type !== "text") throw new Error("expected text part")
+      expect(part.text).toContain("Implement the following plan:")
+      expect(part.text).toContain(`Plan file: ${planPath}`)
+      expect(planPath).toEndWith(".html")
+      expect(planPath).not.toContain(".md")
     }))
 
   test("ask - creates a new session in the planning session directory when the current instance differs", () =>

@@ -177,8 +177,21 @@ function planEditRules(worktree: string) {
   }
 }
 
+function planHtmlEditRules(worktree: string) {
+  return {
+    "*": "deny" as const,
+    [path.join(".kilo", "plans", "*.html")]: "allow" as const,
+    [path.join(".opencode", "plans", "*.html")]: "allow" as const,
+    [path.relative(worktree, path.join(Global.Path.data, path.join("plans", "*.html")))]: "allow" as const,
+  }
+}
+
 function planEditGuard(worktree: string) {
   return Permission.fromConfig({ edit: planEditRules(worktree) })
+}
+
+function planHtmlEditGuard(worktree: string) {
+  return Permission.fromConfig({ edit: planHtmlEditRules(worktree) })
 }
 
 function planGuard(worktree: string, mcp: Record<string, "allow" | "ask" | "deny"> = {}) {
@@ -208,6 +221,37 @@ function planGuard(worktree: string, mcp: Record<string, "allow" | "ask" | "deny
       [path.join(Global.Path.data, "plans", "*")]: "allow",
     },
     edit: planEditRules(worktree),
+    ...mcp,
+  })
+}
+
+function planHtmlGuard(worktree: string, mcp: Record<string, "allow" | "ask" | "deny"> = {}) {
+  return Permission.fromConfig({
+    "*": "deny",
+    question: "allow",
+    suggest: "allow",
+    skill: "allow",
+    plan_exit: "allow",
+    bash: readOnlyBash,
+    read: {
+      "*": "allow",
+      "*.env": "ask",
+      "*.env.*": "ask",
+      "*.env.example": "allow",
+    },
+    grep: "allow",
+    glob: "allow",
+    list: "allow",
+    webfetch: "allow",
+    websearch: "allow",
+    codesearch: "allow",
+    codebase_search: "allow",
+    semantic_search: "allow",
+    external_directory: {
+      [Truncate.GLOB]: "allow",
+      [path.join(Global.Path.data, "plans", "*")]: "allow",
+    },
+    edit: planHtmlEditRules(worktree),
     ...mcp,
   })
 }
@@ -325,6 +369,21 @@ export function patchAgents(
         planGuard(worktree, kilo.mcpRules),
         user,
         planEditGuard(worktree),
+        denies(user),
+      ),
+    }
+  }
+
+  // Patch plan_html mode
+  if (agents.plan_html) {
+    agents.plan_html = {
+      ...agents.plan_html,
+      description: "Plan mode that generates self-contained HTML artifacts instead of markdown plans.",
+      permission: Permission.merge(
+        defaults,
+        planHtmlGuard(worktree, kilo.mcpRules),
+        user,
+        planHtmlEditGuard(worktree),
         denies(user),
       ),
     }

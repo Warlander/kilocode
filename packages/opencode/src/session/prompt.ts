@@ -252,7 +252,9 @@ export const layer = Layer.effect(
           KiloSessionPrompt.insertPlanReminders({ agent: input.agent, session: input.session, userMessage }),
         )
         // kilocode_change end
-        const wasPlan = input.messages.some((msg) => msg.info.role === "assistant" && msg.info.agent === "plan")
+        const wasPlan = input.messages.some(
+          (msg) => msg.info.role === "assistant" && (msg.info.agent === "plan" || msg.info.agent === "plan_html"),
+        )
         if (wasPlan && input.agent.name === "code") {
           // kilocode_change - renamed from "build" to "code"
           userMessage.parts.push({
@@ -268,9 +270,13 @@ export const layer = Layer.effect(
       }
 
       const assistantMessage = input.messages.findLast((msg) => msg.info.role === "assistant")
-      if (input.agent.name !== "plan" && assistantMessage?.info.agent === "plan") {
+      const isPlanAgent = input.agent.name === "plan" || input.agent.name === "plan_html"
+      const wasPlanAgent = assistantMessage?.info.agent === "plan" || assistantMessage?.info.agent === "plan_html"
+
+      if (!isPlanAgent && wasPlanAgent) {
         const ctx = yield* InstanceState.context
-        const plan = Session.plan(input.session, ctx)
+        const ext = assistantMessage?.info.agent === "plan_html" ? ".html" : ".md"
+        const plan = Session.plan(input.session, ctx, ext)
         if (!(yield* fsys.existsSafe(plan))) return input.messages
         const part = yield* sessions.updatePart({
           id: PartID.ascending(),
@@ -284,12 +290,86 @@ export const layer = Layer.effect(
         return input.messages
       }
 
-      if (input.agent.name !== "plan" || assistantMessage?.info.agent === "plan") return input.messages
+      if (!isPlanAgent || wasPlanAgent) return input.messages
 
       const ctx = yield* InstanceState.context
-      const plan = Session.plan(input.session, ctx)
+      const isHtmlPlan = input.agent.name === "plan_html"
+      const plan = Session.plan(input.session, ctx, isHtmlPlan ? ".html" : ".md")
       const exists = yield* fsys.existsSafe(plan)
       if (!exists) yield* fsys.ensureDir(path.dirname(plan)).pipe(Effect.catch(Effect.die))
+
+      if (isHtmlPlan) {
+        const part = yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: userMessage.info.id,
+          sessionID: userMessage.info.sessionID,
+          type: "text",
+          text: `<system-reminder>
+Plan mode (HTML) is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan HTML file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+
+## Plan File Info:
+${exists ? `A plan HTML file already exists at ${plan}. You can read it and make incremental edits using the edit tool.` : `No plan HTML file exists yet. You should create your plan at ${plan} using the write tool.`}
+You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+
+## HTML Artifact Guidelines
+
+Produce a **self-contained HTML file** with the following properties:
+- **Inline CSS only** - no external stylesheets or dependencies
+- **Dark mode default** - use a dark color scheme as the base
+- **Responsive** - readable on different screen sizes
+- **System fonts** - use \`font-family: system-ui, sans-serif\`
+- **No external dependencies** - no CDN links, no images hosted elsewhere
+- **Semantic structure** - use proper HTML5 elements (header, main, section, etc.)
+
+## Plan Workflow
+
+### Phase 1: Initial Understanding
+Goal: Gain a comprehensive understanding of the user's request by reading through code and asking them questions. Critical: In this phase you should only use the explore subagent type.
+
+1. Focus on understanding the user's request and the code associated with their request
+
+2. **Launch up to 3 explore agents IN PARALLEL** (single message, multiple tool calls) to efficiently explore the codebase.
+  - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
+  - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
+  - Quality over quantity - 3 agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
+  - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigates testing patterns
+
+3. After exploring the code, use the question tool to clarify ambiguities in the user request up front.
+
+### Phase 2: Design
+Goal: Design an implementation approach.
+
+Launch general agent(s) to design the implementation based on the user's intent and your exploration results from Phase 1.
+
+You can launch up to 1 agent(s) in parallel.
+
+### Phase 3: Review
+Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
+1. Read the critical files identified by agents to deepen your understanding
+2. Ensure that the plans align with the user's original request
+3. Use question tool to clarify any remaining questions with the user
+
+### Phase 4: Final Plan
+Goal: Write your final plan to the plan HTML file (the only file you can edit).
+- Include only your recommended approach, not all alternatives
+- Ensure the HTML is self-contained with inline CSS
+- Include the paths of critical files to be modified
+- Include a verification section describing how to test the changes end-to-end
+
+### Phase 5: Call plan_exit tool
+At the very end of your turn, once you have asked the user questions and are happy with your final plan HTML file - you should always call plan_exit to indicate to the user that you are done planning.
+This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
+
+**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
+
+NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
+</system-reminder>`,
+          synthetic: true,
+        })
+        userMessage.parts.push(part)
+        return input.messages
+      }
+
       const part = yield* sessions.updatePart({
         id: PartID.ascending(),
         messageID: userMessage.info.id,
@@ -310,10 +390,10 @@ Goal: Gain a comprehensive understanding of the user's request by reading throug
 1. Focus on understanding the user's request and the code associated with their request
 
 2. **Launch up to 3 explore agents IN PARALLEL** (single message, multiple tool calls) to efficiently explore the codebase.
- - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
- - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
- - Quality over quantity - 3 agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
- - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigates testing patterns
+  - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
+  - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
+  - Quality over quantity - 3 agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
+  - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigates testing patterns
 
 3. After exploring the code, use the question tool to clarify ambiguities in the user request up front.
 
