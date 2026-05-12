@@ -153,6 +153,19 @@ const mapAgent = (a: Agent) => ({
 const SESSION_SCOPED_PART_EVENTS = new Set(["message.part.updated", "message.part.delta", "message.part.removed"])
 const isSessionScopedPartEvent = (type: string) => SESSION_SCOPED_PART_EVENTS.has(type)
 
+function isPlanHtmlPath(fsPath: string): boolean {
+  const p = fsPath.replace(/\\/g, "/").toLowerCase()
+  return (
+    p.endsWith(".html") &&
+    (p.includes("/.kilo/plans/") ||
+      p.includes("/.opencode/plans/") ||
+      p.includes("/kilo/plans/") ||
+      p.includes("/opencode/plans/") ||
+      p.startsWith(".kilo/plans/") ||
+      p.startsWith(".opencode/plans/"))
+  )
+}
+
 export class KiloProvider implements vscode.WebviewViewProvider, TelemetryPropertiesProvider {
   public static readonly viewType = "kilo-code.SidebarProvider"
   private readonly instanceId = crypto.randomUUID()
@@ -256,6 +269,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   private createWorktreeHandler: ((baseBranch?: string, branchName?: string) => Promise<void>) | null = null
 
   private diffVirtualProvider: import("./DiffVirtualProvider").DiffVirtualProvider | undefined
+  private htmlPreviewProvider: import("./HtmlPreviewProvider").HtmlPreviewProvider | undefined
   private remoteService: RemoteStatusService | null = null
   private unsubscribeRemote: (() => void) | null = null
 
@@ -305,6 +319,10 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
 
   public setDiffVirtualProvider(provider: import("./DiffVirtualProvider").DiffVirtualProvider): void {
     this.diffVirtualProvider = provider
+  }
+
+  public setHtmlPreviewProvider(provider: import("./HtmlPreviewProvider").HtmlPreviewProvider): void {
+    this.htmlPreviewProvider = provider
   }
 
   getTelemetryProperties(): Record<string, unknown> {
@@ -2894,11 +2912,18 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
    * Resolves relative paths against the current session's directory (which may be
    * a worktree path registered via setSessionDirectory), falling back to workspace root.
    * Absolute paths (Unix `/…` or Windows `C:\…`) are used as-is.
+   * Plan HTML files open in a dedicated preview panel instead of the text editor.
    */
   private handleOpenFile(filePath: string, line?: number, column?: number): void {
     const uri = isAbsolutePath(filePath)
       ? vscode.Uri.file(filePath)
       : vscode.Uri.joinPath(vscode.Uri.file(this.getWorkspaceDirectory(this.currentSession?.id)), filePath)
+
+    if (isPlanHtmlPath(uri.fsPath) && this.htmlPreviewProvider) {
+      this.htmlPreviewProvider.open(uri)
+      return
+    }
+
     vscode.workspace.openTextDocument(uri).then(
       (doc) => {
         const options: vscode.TextDocumentShowOptions = { preview: true }
@@ -3471,6 +3496,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     this.sessionDirectories.clear()
     this.permissionDirectories.clear()
     this.sessionStatusMap.clear()
+    this.htmlPreviewProvider?.dispose()
     this.ignoreController?.dispose()
     this.chatAutocomplete?.dispose()
     ;(this.marketplace?.dispose(), disposeGitChangesTarget())

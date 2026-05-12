@@ -6,6 +6,7 @@ import { KiloClawProvider } from "./kiloclaw/KiloClawProvider"
 import { DiffViewerProvider } from "./diff/DiffViewerProvider"
 import { DiffSourceCatalog } from "./diff/sources/catalog"
 import { DiffVirtualProvider } from "./DiffVirtualProvider"
+import { HtmlPreviewProvider } from "./HtmlPreviewProvider"
 import { SettingsEditorProvider } from "./SettingsEditorProvider"
 import { SubAgentViewerProvider } from "./SubAgentViewerProvider"
 import { EXTENSION_DISPLAY_NAME } from "./constants"
@@ -204,6 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
           agentManagerProvider.createFromSidebar(baseBranch, branchName),
         )
         tabProvider.setDiffVirtualProvider(diffVirtualProvider)
+        tabProvider.setHtmlPreviewProvider(htmlPreviewProvider)
         tabProvider.resolveWebviewPanel(panel)
         tabPanels.set(panel, tabProvider)
         panel.onDidDispose(
@@ -235,6 +237,11 @@ export function activate(context: vscode.ExtensionContext) {
   provider.setDiffVirtualProvider(diffVirtualProvider)
   agentManagerHost.setDiffVirtualProvider(diffVirtualProvider)
   context.subscriptions.push(diffVirtualProvider)
+
+  // Create HTML preview provider for plan HTML files
+  const htmlPreviewProvider = new HtmlPreviewProvider(context.extensionUri)
+  provider.setHtmlPreviewProvider(htmlPreviewProvider)
+  context.subscriptions.push(htmlPreviewProvider)
 
   // Create settings/profile editor provider (opens in editor area, not sidebar)
   const settingsEditorProvider = new SettingsEditorProvider(context.extensionUri, connectionService, context)
@@ -347,6 +354,7 @@ export function activate(context: vscode.ExtensionContext) {
         diffVirtualProvider,
         remoteService,
         autoApprove,
+        htmlPreviewProvider,
       )
     }),
     vscode.commands.registerCommand(
@@ -473,6 +481,7 @@ async function openKiloInNewTab(
   diffVirtualProvider: DiffVirtualProvider,
   remoteService: RemoteStatusService,
   autoApprove: ReturnType<typeof registerToggleAutoApprove>,
+  htmlPreviewProvider: HtmlPreviewProvider,
 ) {
   const lastCol = Math.max(...vscode.window.visibleTextEditors.map((e) => e.viewColumn || 0), 0)
   const hasVisibleEditors = vscode.window.visibleTextEditors.length > 0
@@ -506,6 +515,7 @@ async function openKiloInNewTab(
     agentManagerProvider.createFromSidebar(baseBranch, branchName),
   )
   tabProvider.setDiffVirtualProvider(diffVirtualProvider)
+  tabProvider.setHtmlPreviewProvider(htmlPreviewProvider)
   tabProvider.resolveWebviewPanel(panel)
   tabPanels.set(panel, tabProvider)
 

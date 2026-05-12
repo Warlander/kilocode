@@ -168,6 +168,20 @@ function getDirectory(path: string | undefined) {
   return relativizeProjectPath(_getDirectory(path), data.directory)
 }
 
+function isPlanHtmlPath(filePath: string | undefined): boolean {
+  if (!filePath) return false
+  const p = filePath.replace(/\\/g, "/").toLowerCase()
+  return (
+    p.endsWith(".html") &&
+    (p.includes("/.kilo/plans/") ||
+      p.includes("/.opencode/plans/") ||
+      p.includes("/kilo/plans/") ||
+      p.includes("/opencode/plans/") ||
+      p.startsWith(".kilo/plans/") ||
+      p.startsWith(".opencode/plans/"))
+  )
+}
+
 import type { IconProps } from "./icon"
 
 export type ToolInfo = {
@@ -2135,7 +2149,7 @@ ToolRegistry.register({
         deletions: diff?.deletions ?? 0,
       })
     })
-    const canOpenDiff = () => !!data.openDiff && !!path() && !!view()
+    const canOpenDiff = () => !!data.openDiff && !!path() && !!view() && !isPlanHtmlPath(path())
     const canOpenFile = () => !!data.openFile && !!path()
 
     const openDiff = () => {
@@ -2251,7 +2265,7 @@ ToolRegistry.register({
       if (!diff?.patch) return
       return normalize(diff)
     })
-    const canOpenDiff = () => !!data.openDiff && !!props.input.filePath && !!view()
+    const canOpenDiff = () => !!data.openDiff && !!props.input.filePath && !!view() && !isPlanHtmlPath(props.input.filePath)
     const canOpenFile = () => !!data.openFile && !!props.input.filePath
 
     const openDiff = () => {
